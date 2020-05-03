@@ -43,6 +43,8 @@ import tensorlayer as tl
 import numpy as np
 import network, img_io
 
+import json, time
+
 eps = 1e-5
 
 def print_(str, color='', bold=False):
@@ -98,11 +100,20 @@ print_("\t-------------------------------------------------------------------\n\
 # Single frame
 frames = [FLAGS.im_dir]
 
+# # If directory is supplied, get names of all files in the path
+# if os.path.isdir(FLAGS.im_dir):
+#     frames = [os.path.join(FLAGS.im_dir, name)
+#               for name in sorted(os.listdir(FLAGS.im_dir))
+#               if os.path.isfile(os.path.join(FLAGS.im_dir, name))]
+
+
+# CS766 custom code to get proper files for our dir structure.
 # If directory is supplied, get names of all files in the path
 if os.path.isdir(FLAGS.im_dir):
-    frames = [os.path.join(FLAGS.im_dir, name)
-              for name in sorted(os.listdir(FLAGS.im_dir))
-              if os.path.isfile(os.path.join(FLAGS.im_dir, name))]
+    with open("../../subset.json") as f:
+        imgs = json.load(f)
+
+    frames = sorted([os.path.join(FLAGS.im_dir, img) for img in imgs])
 
 # Placeholder for image input
 x = tf.placeholder(tf.float32, shape=[1, sy, sx, 3])
@@ -128,37 +139,53 @@ if not os.path.exists(FLAGS.out_dir):
 
 print_("\nStarting prediction...\n\n")
 k = 0
+total_time = 0
 for i in range(len(frames)):
     print("Frame %d: '%s'"%(i,frames[i]))
 
+
+    img_time = 0
     try:
-        # Read frame
-        print_("\tReading...")
-        x_buffer = img_io.readLDR(frames[i], (sy,sx), True, FLAGS.scaling)
-        print_("\tdone")
+        for j in [2,3]:
+            
+            frame = os.path.join(frames[i], 'sdr_+%dev.png'%(j))
 
-        print_("\t(Saturation: %0.2f%%)\n" % (100.0*(x_buffer>=1).sum()/x_buffer.size), 'm')
+            # Read frame
+            print_("\tReading...")
+            x_buffer = img_io.readLDR(frame, (sy,sx), True, FLAGS.scaling)
+            print_("\tdone")
 
-        # Run prediction.
-        # The gamma value is used to allow for boosting/reducing the intensity of
-        # the reconstructed highlights. If y = f(x) is the reconstruction, the gamma
-        # g alters this according to y = f(x^(1/g))^g
-        print_("\tInference...")
-        feed_dict = {x: np.power(np.maximum(x_buffer, 0.0), 1.0/FLAGS.gamma)}
-        y_predict = sess.run([y], feed_dict=feed_dict)
-        y_predict = np.power(np.maximum(y_predict, 0.0), FLAGS.gamma)
-        print_("\tdone\n")
+            print_("\t(Saturation: %0.2f%%)\n" % (100.0*(x_buffer>=1).sum()/x_buffer.size), 'm')
 
-        # Gamma corrected output
-        y_gamma = np.power(np.maximum(y_predict, 0.0), 0.5)
+            # Run prediction.
+            # The gamma value is used to allow for boosting/reducing the intensity of
+            # the reconstructed highlights. If y = f(x) is the reconstruction, the gamma
+            # g alters this according to y = f(x^(1/g))^g
+            print_("\tInference...")
 
-        # Write to disc
-        print_("\tWriting...")
-        k += 1;
-        img_io.writeLDR(x_buffer, '%s/%06d_in.png' % (FLAGS.out_dir, k), -3)
-        img_io.writeLDR(y_gamma, '%s/%06d_out.png' % (FLAGS.out_dir, k), -3)
-        img_io.writeEXR(y_predict, '%s/%06d_out.exr' % (FLAGS.out_dir, k))
-        print_("\tdone\n")
+            start = time.process_time()
+
+            feed_dict = {x: np.power(np.maximum(x_buffer, 0.0), 1.0/FLAGS.gamma)}
+            y_predict = sess.run([y], feed_dict=feed_dict)
+            y_predict = np.power(np.maximum(y_predict, 0.0), FLAGS.gamma)
+
+            end = time.process_time()
+            img_time += end-start
+
+            print_("\tdone\n")
+
+            # Gamma corrected output
+            y_gamma = np.power(np.maximum(y_predict, 0.0), 0.5)
+
+            # Write to disc
+            print_("\tWriting...")
+            #img_io.writeLDR(x_buffer, '%s/%06d_in.png' % (FLAGS.out_dir, k), -3)
+            img_io.writeLDR(y_gamma, '%s/cnn_+%dev.png'%(frames[i],j), -3)
+            #img_io.writeEXR(y_predict, '%s/%06d_out.exr' % (FLAGS.out_dir, k))
+            print_("\tdone\n")
+
+        k += 1
+        total_time += img_time/2
 
     except img_io.IOException as e:
         print_("\n\t\tWarning! ", 'w', True)
@@ -168,6 +195,8 @@ for i in range(len(frames)):
         print_("%s\n"%e, 'e')
 
 print_("Done!\n")
+print_("Read %d images\n"%(k))
+print_("Average time/img: %f\n"%(total_time/k))
 
 sess.close()
 

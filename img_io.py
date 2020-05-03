@@ -52,6 +52,12 @@ def readLDR(file, sz, clip=True, sc=1.0):
     try:
         x_buffer = scipy.misc.imread(file)
 
+        x_buffer_sx = int(np.maximum(32, np.round(x_buffer.shape[0]/32.0)*32))
+        x_buffer_sy = int(np.maximum(32, np.round(x_buffer.shape[1]/32.0)*32))
+
+        if x_buffer_sx!=sz[0] or x_buffer_sy!=sz[1]:
+            raise IOException("Image dimensions dont match buffer dimensions")
+
         # Clip image, so that ratio is not changed by image resize
         if clip:
             sz_in = [float(x) for x in x_buffer.shape]
